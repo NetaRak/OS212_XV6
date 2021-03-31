@@ -11,6 +11,7 @@
 #define LIST  4
 #define BACK  5
 
+#define MAX_PATH_VAR_LENGTH 256
 #define MAXARGS 10
 
 struct cmd {
@@ -53,6 +54,34 @@ int fork1(void);  // Fork but panics on failure.
 void panic(char*);
 struct cmd *parsecmd(char*);
 
+int
+findinpath(char * cmdName, char ** args) {
+    int path_fd = open("/path", 0);
+    char c;
+    if(path_fd != -1){
+      int i = 0;
+      char path[MAX_PATH_VAR_LENGTH];
+      path[0] = '\0';
+      while((read(path_fd, &c, 1)) != '\0'){
+      if(c != ':'){
+        path[i] = c;
+        i++;
+      } else {
+        for(int j = 0; j < strlen(cmdName); j++){
+          path[i + j] = cmdName[j];
+        }
+        i = 0;
+        exec(path, args);
+        for(int k = 0; k < MAX_PATH_VAR_LENGTH; k++){
+          path[k] = 0;
+        }
+      }
+    //  fprintf(2, "%c", c);
+      }
+    }
+  return -1;
+}
+
 // Execute cmd.  Never returns.
 void
 runcmd(struct cmd *cmd)
@@ -76,9 +105,10 @@ runcmd(struct cmd *cmd)
     if(ecmd->argv[0] == 0)
       exit(1);
     exec(ecmd->argv[0], ecmd->argv);
+    if((findinpath(ecmd->argv[0], ecmd->argv)) == -1){
     fprintf(2, "exec %s failed\n", ecmd->argv[0]);
-    break;
-
+    }
+    break;   
   case REDIR:
     rcmd = (struct redircmd*)cmd;
     close(rcmd->fd);
@@ -129,6 +159,8 @@ runcmd(struct cmd *cmd)
   }
   exit(0);
 }
+
+
 
 int
 getcmd(char *buf, int nbuf)

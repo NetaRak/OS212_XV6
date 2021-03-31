@@ -82,16 +82,31 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+struct perf {
+int ctime;
+int ttime;
+int stime;
+int retime;
+int rutime;
+int average_bursttime; //average of bursstimes in 100ths (so average*100)
+};
+
 // Per-process state
 struct proc {
   struct spinlock lock;
-
   // p->lock must be held when using these:
   enum procstate state;        // Process state
   void *chan;                  // If non-zero, sleeping on chan
   int killed;                  // If non-zero, have been killed
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
+  int trace_mask;              // Trace mask
+  int ctime;
+  int ttime;
+  int stime;
+  int retime;
+  int rutime;
+  int average_bursttime; //average of bursstimes in 100ths (so average*100)
 
   // proc_tree_lock must be held when using this:
   struct proc *parent;         // Parent process

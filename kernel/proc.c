@@ -119,7 +119,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-
+  p->trace_mask = 0;
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -140,6 +140,10 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+
+  acquire(&tickslock);
+  p->ctime = ticks;
+  release(&tickslock);
 
   return p;
 }
@@ -163,6 +167,9 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  acquire(&tickslock);
+  p->ttime = ticks;
+  release(&tickslock);
   p->state = UNUSED;
 }
 
@@ -267,6 +274,28 @@ growproc(int n)
   return 0;
 }
 
+// Tracing a process System Calls
+int
+trace(int mask, int pid){
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid){
+      p->trace_mask = mask;
+      // if(p->state == SLEEPING){
+      //   // Wake process from sleep().
+      //   p->state = RUNNABLE;
+      // }
+      release(&p->lock);
+      return 0;
+    }
+    release(&p->lock);
+  }
+  return -1;
+
+}
+
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
 int
@@ -288,6 +317,7 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  np->trace_mask = p->trace_mask;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -376,6 +406,22 @@ exit(int status)
   // Jump into the scheduler, never to return.
   sched();
   panic("zombie exit");
+}
+
+int
+wait_stat(int* status, struct perf * performance){
+  struct proc *p = myproc();
+  if(status == UNUSED){
+    performance->ctime = p->ctime;
+    performance->ttime = p->ttime;
+    performance->retime = p->retime;
+    performance->stime = p->stime;
+    performance->rutime = p->rutime;
+    //TODO: Average burst time
+    
+    return p->pid;  
+  }
+  return -1;
 }
 
 // Wait for a child process to exit and return its pid.
@@ -572,6 +618,29 @@ wakeup(void *chan)
   }
 }
 
+void
+updateprocessestime(){
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    if(p != myproc()){
+      acquire(&p->lock);
+      switch(p->state){
+        case SLEEPING:
+          p->stime++;
+          break;
+        case RUNNING:
+          p->rutime++;
+          break;
+        case RUNNABLE:
+          p->retime++;
+          break;
+        default:
+          break;
+      }
+      release(&p->lock);
+    }
+  }
+}
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).
