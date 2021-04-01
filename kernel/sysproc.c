@@ -38,7 +38,13 @@ sys_trace(void)
 
 uint64
 sys_wait_stat(void){
-  return 0;
+  uint64 p;
+  uint64 perf;
+  if(argaddr(0, &p) < 0)
+    return -1;
+  if(argaddr(1, &perf) < 0)
+    return -1;
+  return wait_stat(p, perf);
 }
 
 uint64
@@ -54,6 +60,15 @@ sys_wait(void)
   if(argaddr(0, &p) < 0)
     return -1;
   return wait(p);
+}
+
+uint64
+sys_set_priority(void){
+  int priority;
+
+  if(argint(0, &priority) < 0)
+    return -1;
+  return set_priority(priority);
 }
 
 uint64
