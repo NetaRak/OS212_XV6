@@ -167,9 +167,6 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
-  acquire(&tickslock);
-  p->ttime = ticks;
-  release(&tickslock);
   p->state = UNUSED;
 }
 
@@ -400,28 +397,106 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
-
+  acquire(&tickslock);
+  p->ttime = ticks;
+  release(&tickslock);
   release(&wait_lock);
-
   // Jump into the scheduler, never to return.
   sched();
   panic("zombie exit");
 }
 
 int
-wait_stat(int* status, struct perf * performance){
+wait_stat(uint64 status, uint64 performance){
+  struct proc *np;
+  int havekids, pid;
   struct proc *p = myproc();
-  if(status == UNUSED){
-    performance->ctime = p->ctime;
-    performance->ttime = p->ttime;
-    performance->retime = p->retime;
-    performance->stime = p->stime;
-    performance->rutime = p->rutime;
-    //TODO: Average burst time
+  acquire(&wait_lock);
+
+  for(;;){
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for(np = proc; np < &proc[NPROC]; np++){
+      if(np->parent == p){
+        // make sure the child isn't still in exit() or swtch().
+        acquire(&np->lock);
+
+        havekids = 1;
+        if(np->state == ZOMBIE){
+          // Found one.
+          pid = np->pid;
+          if(status != 0 && copyout(p->pagetable, status, (char *)&np->xstate,
+                                  sizeof(np->xstate)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          if(performance == 0){
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          if(copyout(p->pagetable, performance, (char *)&np->ctime,
+                                  sizeof(np->ctime)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          if(copyout(p->pagetable, performance + sizeof(int), (char *)&np->ttime,
+                                  sizeof(np->ttime)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          if(copyout(p->pagetable, performance + sizeof(int) * 2, (char *)&np->stime,
+                                  sizeof(np->stime)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          if(copyout(p->pagetable, performance + sizeof(int) * 3, (char *)&np->retime,
+                                  sizeof(np->retime)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }          
+
+          if(copyout(p->pagetable, performance + sizeof(int) * 4, (char *)&np->rutime,
+                                  sizeof(np->rutime)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }       
+
+          if(copyout(p->pagetable, performance + sizeof(int) * 5, (char *)&np->average_bursttime,
+                                  sizeof(np->average_bursttime)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          } 
+
+          freeproc(np);
+          release(&np->lock);
+          release(&wait_lock);
+          return pid;
+        }
+        release(&np->lock);
+      }
+    }
+        // No point waiting if we don't have any children.
+    if(!havekids || p->killed){
+      release(&wait_lock);
+      return -1;
+    }
     
-    return p->pid;  
+    // Wait for a child to exit.
+    sleep(p, &wait_lock);  //DOC: wait-sleep
   }
-  return -1;
 }
 
 // Wait for a child process to exit and return its pid.
@@ -473,6 +548,16 @@ wait(uint64 addr)
   }
 }
 
+int
+set_priority(int priority){
+  struct proc *p = myproc();
+  if(priority >=1 && priority <= 5){
+    p->priority = priority;
+    return 0;
+  }
+  return -1;
+}
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -483,8 +568,10 @@ wait(uint64 addr)
 void
 scheduler(void)
 {
+  #ifdef DEFAULT
   struct proc *p;
   struct cpu *c = mycpu();
+
   
   c->proc = 0;
   for(;;){
@@ -500,14 +587,91 @@ scheduler(void)
         p->state = RUNNING;
         c->proc = p;
         swtch(&c->context, &p->context);
-
+        
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
       }
       release(&p->lock);
-    }
+    }      
   }
+  #else
+  #ifdef FCFS
+  struct proc *p;
+  struct cpu *c = mycpu();
+  struct proc *prio_proc = 0;
+  c->proc = 0;
+//  printf("pid %d ctime %d\n",proc->pid,proc->ctime);
+  for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on(); 
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+        if(p->state == RUNNABLE){
+            if(prio_proc == 0 || p->ctime < prio_proc->ctime) {
+              prio_proc = p;
+            } 
+        }
+        release(&p->lock);
+      }
+      if(prio_proc != 0){
+        acquire(&prio_proc->lock);
+      if(prio_proc->state == RUNNABLE){
+        prio_proc->state = RUNNING;
+        c->proc = prio_proc;
+        swtch(&c->context, &prio_proc->context);
+        c->proc = 0;
+      } 
+      release(&prio_proc->lock);
+    }    
+     prio_proc = 0;
+  }
+
+  #else
+  #ifdef SRT
+  #else
+  #ifdef CFSD
+
+  struct proc *p;
+  struct cpu *c = mycpu();
+  struct proc *prio_proc = 0;
+  c->proc = 0;
+  int prio[] = {1,3,5,7,25};
+  int min_ratiotime = -1;
+//  printf("pid %d ctime %d\n",proc->pid,proc->ctime);
+  for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on(); 
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+        if(p->state == RUNNABLE){
+          int ratioTime = (p->rutime * prio[p->priority])/(p->rutime + p->stime);
+            if(prio_proc == 0 || ratioTime < min_ratiotime) {
+              prio_proc = p;
+              min_ratiotime=ratioTime;
+            } 
+        }
+        release(&p->lock);
+      }
+      if(prio_proc != 0){
+        acquire(&prio_proc->lock);
+      if(prio_proc->state == RUNNABLE){
+        prio_proc->state = RUNNING;
+        c->proc = prio_proc;
+        swtch(&c->context, &prio_proc->context);
+        c->proc = 0;
+      } 
+      release(&prio_proc->lock);
+    }    
+     prio_proc = 0;
+     min_ratiotime = -1;
+  }
+      
+      
+  #endif
+  #endif
+  #endif
+  #endif
 }
 
 // Switch to scheduler.  Must hold only p->lock
