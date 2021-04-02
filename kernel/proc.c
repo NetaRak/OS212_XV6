@@ -118,6 +118,7 @@ allocproc(void)
 
 found:
   p->pid = allocpid();
+  p->average_bursttime = QUANTUM * 100;
   p->state = USED;
   p->trace_mask = 0;
   // Allocate a trapframe page.
@@ -141,9 +142,9 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
-  acquire(&tickslock);
+ // acquire(&tickslock);
   p->ctime = ticks;
-  release(&tickslock);
+  //release(&tickslock);
 
   return p;
 }
@@ -275,7 +276,7 @@ growproc(int n)
 int
 trace(int mask, int pid){
   struct proc *p;
-
+  //find the process from the process table and update his mask
   for(p = proc; p < &proc[NPROC]; p++){
     acquire(&p->lock);
     if(p->pid == pid){
@@ -315,13 +316,13 @@ fork(void)
   }
   np->sz = p->sz;
   np->trace_mask = p->trace_mask;
+  np->average_bursttime = 100 * QUANTUM;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
-
   // increment reference counts on open file descriptors.
   for(i = 0; i < NOFILE; i++)
     if(p->ofile[i])
@@ -397,9 +398,10 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
-  acquire(&tickslock);
+  //termination time current tick
+  //acquire(&tickslock);
   p->ttime = ticks;
-  release(&tickslock);
+ // release(&tickslock);
   release(&wait_lock);
   // Jump into the scheduler, never to return.
   sched();
@@ -425,6 +427,7 @@ wait_stat(uint64 status, uint64 performance){
         if(np->state == ZOMBIE){
           // Found one.
           pid = np->pid;
+          //copy the values of the parent to the child
           if(status != 0 && copyout(p->pagetable, status, (char *)&np->xstate,
                                   sizeof(np->xstate)) < 0) {
             release(&np->lock);
@@ -436,8 +439,7 @@ wait_stat(uint64 status, uint64 performance){
             release(&np->lock);
             release(&wait_lock);
             return -1;
-          }
-
+          } 
           if(copyout(p->pagetable, performance, (char *)&np->ctime,
                                   sizeof(np->ctime)) < 0) {
             release(&np->lock);
@@ -629,6 +631,36 @@ scheduler(void)
 
   #else
   #ifdef SRT
+  struct proc *p;
+  struct cpu *c = mycpu();
+  struct proc *prio_proc = 0;
+  c->proc = 0;
+//  printf("pid %d ctime %d\n",proc->pid,proc->ctime);
+  for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on(); 
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+        if(p->state == RUNNABLE){
+            if(prio_proc == 0 || p->average_bursttime < prio_proc->average_bursttime) {
+              prio_proc = p;
+            } 
+        }
+        release(&p->lock);
+      }
+      if(prio_proc != 0){
+        acquire(&prio_proc->lock);
+      if(prio_proc->state == RUNNABLE){
+        prio_proc->state = RUNNING;
+        c->proc = prio_proc;
+        swtch(&c->context, &prio_proc->context);
+        c->proc = 0;
+      } 
+      release(&prio_proc->lock);
+    }    
+     prio_proc = 0;
+  }
+
   #else
   #ifdef CFSD
 
@@ -707,6 +739,9 @@ yield(void)
 {
   struct proc *p = myproc();
   acquire(&p->lock);
+  int lastA = p->average_bursttime;
+  p->average_bursttime = (ALPHA*p->cputime)+(((100-ALPHA)*lastA)/100);
+  p->cputime = 0;
   p->state = RUNNABLE;
   sched();
   release(&p->lock);
@@ -791,9 +826,13 @@ updateprocessestime(){
       switch(p->state){
         case SLEEPING:
           p->stime++;
+          int lastA = p->average_bursttime;
+          p->average_bursttime = (ALPHA*p->cputime)+(((100-ALPHA)*lastA)/100);
+          p->cputime = 0;
           break;
         case RUNNING:
           p->rutime++;
+          p->cputime++;
           break;
         case RUNNABLE:
           p->retime++;

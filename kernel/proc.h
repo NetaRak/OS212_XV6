@@ -107,7 +107,7 @@ struct proc {
   int retime;
   int rutime;
   int average_bursttime; //average of bursstimes in 100ths (so average*100)
-
+  int cputime;
   int priority;
 
   // proc_tree_lock must be held when using this:
