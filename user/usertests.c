@@ -990,31 +990,33 @@ forkfork(char *s)
 
 void
 forkforkfork(char *s)
-{
-  unlink("stopforking");
+{    
 
+  unlink("stopforking");
   int pid = fork();
   if(pid < 0){
+
     printf("%s: fork failed", s);
     exit(1);
   }
   if(pid == 0){
     while(1){
       int fd = open("stopforking", 0);
+
       if(fd >= 0){
+
         exit(0);
       }
       if(fork() < 0){
         close(open("stopforking", O_CREATE|O_RDWR));
       }
     }
-
     exit(0);
   }
-
   sleep(20); // two seconds
   close(open("stopforking", O_CREATE|O_RDWR));
   wait(0);
+
   sleep(10); // one second
 }
 
@@ -2766,23 +2768,23 @@ main(int argc, char *argv[])
     void (*f)(char *);
     char *s;
   } tests[] = {
-    // {manywrites, "manywrites"},
-    // {execout, "execout"},
-    // {copyin, "copyin"},
-    // {copyout, "copyout"},
-    // {copyinstr1, "copyinstr1"},
-    // {copyinstr2, "copyinstr2"},
-    // {copyinstr3, "copyinstr3"},
-    // {rwsbrk, "rwsbrk" },
-    // {truncate1, "truncate1"},
-    // {truncate2, "truncate2"},
-    // {truncate3, "truncate3"},
-    // {reparent2, "reparent2"},
-    // {pgbug, "pgbug" },
-    // {sbrkbugs, "sbrkbugs" },
-    // {badwrite, "badwrite" },
-    // {badarg, "badarg" },
-    // {reparent, "reparent" },
+    {manywrites, "manywrites"},
+    {execout, "execout"},
+    {copyin, "copyin"},
+    {copyout, "copyout"},
+    {copyinstr1, "copyinstr1"},
+    {copyinstr2, "copyinstr2"},
+    {copyinstr3, "copyinstr3"},
+    {rwsbrk, "rwsbrk" },
+    {truncate1, "truncate1"},
+    {truncate2, "truncate2"},
+    {truncate3, "truncate3"},
+    {reparent2, "reparent2"},
+    {pgbug, "pgbug" },
+    {sbrkbugs, "sbrkbugs" },
+    {badwrite, "badwrite" },
+    {badarg, "badarg" },
+    {reparent, "reparent" },
     {twochildren, "twochildren"},
     {forkfork, "forkfork"},
     {forkforkfork, "forkforkfork"},

@@ -9,6 +9,9 @@
 struct spinlock tickslock;
 uint ticks;
 
+struct spinlock proc_time_lock;
+uint proc_time;
+
 extern char trampoline[], uservec[], userret[];
 
 // in kernelvec.S, calls kerneltrap().
@@ -20,6 +23,8 @@ void
 trapinit(void)
 {
   initlock(&tickslock, "time");
+  initlock(&proc_time_lock, "time");
+
 }
 
 // set up to take exceptions and traps while in the kernel.
@@ -171,6 +176,10 @@ clockintr()
   updateprocessestime();
   wakeup(&ticks);
   release(&tickslock);
+
+  acquire(&proc_time_lock);
+  proc_time++;
+  release(&proc_time_lock);
 }
 
 // check if it's an external interrupt or software interrupt,

@@ -749,9 +749,9 @@ yield(void)
   p->average_bursttime = (ALPHA*p->cputime)+(((100-ALPHA)*lastA)/100);
   p->cputime = 0;
   #ifndef FCFS
-  acquire(&tickslock);
-  p->que_time = ticks;
-  release(&tickslock);
+  acquire(&proc_time_lock);
+  p->que_time = proc_time;
+  release(&proc_time_lock);
   #endif
   p->state = RUNNABLE;
   sched();
@@ -822,9 +822,9 @@ wakeup(void *chan)
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
         #ifdef FCFS
-        acquire(&tickslock);
-        p->que_time = ticks;
-        release(&tickslock);
+        acquire(&proc_time_lock);
+        p->que_time = proc_time;
+        release(&proc_time_lock);
         #endif
         p->state = RUNNABLE;
       }
@@ -875,9 +875,9 @@ kill(int pid)
       if(p->state == SLEEPING){
         // Wake process from sleep().
         #ifdef FCFS
-        acquire(&tickslock);
-        p->que_time = ticks;
-        release(&tickslock);
+        acquire(&proc_time_lock);
+        p->que_time = proc_time;
+        release(&proc_time_lock);
         #endif
         p->state = RUNNABLE;
       }
