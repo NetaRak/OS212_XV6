@@ -119,6 +119,8 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->average_bursttime = QUANTUM * 100;
+  p->cputime = 0;
+  p->priority = 3;
   p->state = USED;
   p->trace_mask = 0;
   // Allocate a trapframe page.
@@ -142,9 +144,10 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
- // acquire(&tickslock);
+  acquire(&tickslock);
   p->ctime = ticks;
-  //release(&tickslock);
+  p->que_time = ticks;
+  release(&tickslock);
 
   return p;
 }
@@ -247,6 +250,7 @@ userinit(void)
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
+
   p->state = RUNNABLE;
 
   release(&p->lock);
@@ -316,7 +320,10 @@ fork(void)
   }
   np->sz = p->sz;
   np->trace_mask = p->trace_mask;
+  np->priority = p->priority;
   np->average_bursttime = 100 * QUANTUM;
+  np->cputime = 0;
+  np->que_time = p->que_time;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -342,7 +349,6 @@ fork(void)
   acquire(&np->lock);
   np->state = RUNNABLE;
   release(&np->lock);
-
   return pid;
 }
 
@@ -399,9 +405,9 @@ exit(int status)
   p->xstate = status;
   p->state = ZOMBIE;
   //termination time current tick
-  //acquire(&tickslock);
+  acquire(&tickslock);
   p->ttime = ticks;
- // release(&tickslock);
+  release(&tickslock);
   release(&wait_lock);
   // Jump into the scheduler, never to return.
   sched();
@@ -606,13 +612,13 @@ scheduler(void)
 //  printf("pid %d ctime %d\n",proc->pid,proc->ctime);
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
-    intr_on(); 
+    intr_on();
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
         if(p->state == RUNNABLE){
-            if(prio_proc == 0 || p->ctime < prio_proc->ctime) {
+            if(prio_proc == 0 || p->que_time < prio_proc->que_time) {
               prio_proc = p;
-            } 
+            }
         }
         release(&p->lock);
       }
@@ -623,9 +629,9 @@ scheduler(void)
         c->proc = prio_proc;
         swtch(&c->context, &prio_proc->context);
         c->proc = 0;
-      } 
+      }
       release(&prio_proc->lock);
-    }    
+    }
      prio_proc = 0;
   }
 
@@ -644,7 +650,7 @@ scheduler(void)
         if(p->state == RUNNABLE){
             if(prio_proc == 0 || p->average_bursttime < prio_proc->average_bursttime) {
               prio_proc = p;
-            } 
+            }
         }
         release(&p->lock);
       }
@@ -657,7 +663,7 @@ scheduler(void)
         c->proc = 0;
       } 
       release(&prio_proc->lock);
-    }    
+    }
      prio_proc = 0;
   }
 
@@ -677,11 +683,11 @@ scheduler(void)
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
         if(p->state == RUNNABLE){
-          int ratioTime = (p->rutime * prio[p->priority])/(p->rutime + p->stime);
+          int ratioTime = (p->rutime * prio[p->priority - 1])/(p->rutime + p->stime);
             if(prio_proc == 0 || ratioTime < min_ratiotime) {
               prio_proc = p;
               min_ratiotime=ratioTime;
-            } 
+            }
         }
         release(&p->lock);
       }
@@ -692,9 +698,9 @@ scheduler(void)
         c->proc = prio_proc;
         swtch(&c->context, &prio_proc->context);
         c->proc = 0;
-      } 
+      }
       release(&prio_proc->lock);
-    }    
+    }  
      prio_proc = 0;
      min_ratiotime = -1;
   }
@@ -742,6 +748,11 @@ yield(void)
   int lastA = p->average_bursttime;
   p->average_bursttime = (ALPHA*p->cputime)+(((100-ALPHA)*lastA)/100);
   p->cputime = 0;
+  #ifndef FCFS
+  acquire(&tickslock);
+  p->que_time = ticks;
+  release(&tickslock);
+  #endif
   p->state = RUNNABLE;
   sched();
   release(&p->lock);
@@ -810,6 +821,11 @@ wakeup(void *chan)
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
+        #ifdef FCFS
+        acquire(&tickslock);
+        p->que_time = ticks;
+        release(&tickslock);
+        #endif
         p->state = RUNNABLE;
       }
       release(&p->lock);
@@ -821,7 +837,7 @@ void
 updateprocessestime(){
   struct proc *p;
   for(p = proc; p < &proc[NPROC]; p++) {
-    if(p != myproc()){
+    //if(p != myproc()){
       acquire(&p->lock);
       switch(p->state){
         case SLEEPING:
@@ -841,7 +857,7 @@ updateprocessestime(){
           break;
       }
       release(&p->lock);
-    }
+    //}
   }
 }
 // Kill the process with the given pid.
@@ -858,6 +874,11 @@ kill(int pid)
       p->killed = 1;
       if(p->state == SLEEPING){
         // Wake process from sleep().
+        #ifdef FCFS
+        acquire(&tickslock);
+        p->que_time = ticks;
+        release(&tickslock);
+        #endif
         p->state = RUNNABLE;
       }
       release(&p->lock);

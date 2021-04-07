@@ -76,10 +76,12 @@ usertrap(void)
   if(p->killed)
     exit(-1);
 
+  #ifndef FCFS
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2 && myproc()->cputime >= QUANTUM)
     yield();
-
+  #endif
+  
   usertrapret();
 }
 
