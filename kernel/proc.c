@@ -144,10 +144,15 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
-  acquire(&tickslock);
+ // acquire(&tickslock);
   p->ctime = ticks;
-  p->que_time = ticks;
-  release(&tickslock);
+  //release(&tickslock);
+
+  acquire(&queslotlock);
+  p->runnabletime = que_slot;
+  que_slot++;
+  release(&queslotlock);
+  
 
   return p;
 }
@@ -323,7 +328,6 @@ fork(void)
   np->priority = p->priority;
   np->average_bursttime = 100 * QUANTUM;
   np->cputime = 0;
-  np->que_time = p->que_time;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -349,6 +353,12 @@ fork(void)
   acquire(&np->lock);
   np->state = RUNNABLE;
   release(&np->lock);
+
+  acquire(&queslotlock);
+  np->runnabletime = que_slot;
+  que_slot++;
+  release(&queslotlock);
+
   return pid;
 }
 
@@ -616,7 +626,7 @@ scheduler(void)
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
         if(p->state == RUNNABLE){
-            if(prio_proc == 0 || p->que_time < prio_proc->que_time) {
+            if(prio_proc == 0 || p->runnabletime < prio_proc->runnabletime) {
               prio_proc = p;
             }
         }
@@ -649,7 +659,13 @@ scheduler(void)
       acquire(&p->lock);
         if(p->state == RUNNABLE){
             if(prio_proc == 0 || p->average_bursttime < prio_proc->average_bursttime) {
-              prio_proc = p;
+              // if(prio_proc != 0 && p->average_bursttime == prio_proc->average_bursttime){
+              //   if(prio_proc->runnabletime > p->runnabletime)
+              //     prio_proc = p;
+              // }
+              // else
+                prio_proc = p;
+
             }
         }
         release(&p->lock);
@@ -748,12 +764,11 @@ yield(void)
   int lastA = p->average_bursttime;
   p->average_bursttime = (ALPHA*p->cputime)+(((100-ALPHA)*lastA)/100);
   p->cputime = 0;
-  #ifndef FCFS
-  acquire(&tickslock);
-  p->que_time = ticks;
-  release(&tickslock);
-  #endif
   p->state = RUNNABLE;
+  acquire(&queslotlock);
+  p->runnabletime = que_slot;
+  que_slot++;
+  release(&queslotlock);
   sched();
   release(&p->lock);
 }
@@ -821,11 +836,10 @@ wakeup(void *chan)
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
-        #ifdef FCFS
-        acquire(&tickslock);
-        p->que_time = ticks;
-        release(&tickslock);
-        #endif
+        acquire(&queslotlock);
+        p->runnabletime = que_slot;
+        que_slot++;
+        release(&queslotlock);
         p->state = RUNNABLE;
       }
       release(&p->lock);
@@ -874,11 +888,10 @@ kill(int pid)
       p->killed = 1;
       if(p->state == SLEEPING){
         // Wake process from sleep().
-        #ifdef FCFS
-        acquire(&tickslock);
-        p->que_time = ticks;
-        release(&tickslock);
-        #endif
+        acquire(&queslotlock);
+        p->runnabletime = que_slot;
+        que_slot++;
+        release(&queslotlock);
         p->state = RUNNABLE;
       }
       release(&p->lock);

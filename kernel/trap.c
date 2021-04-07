@@ -7,8 +7,9 @@
 #include "defs.h"
 
 struct spinlock tickslock;
+struct spinlock queslotlock;
 uint ticks;
-
+uint que_slot = 0;
 extern char trampoline[], uservec[], userret[];
 
 // in kernelvec.S, calls kerneltrap().

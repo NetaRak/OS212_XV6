@@ -147,9 +147,11 @@ void            syscall();
 
 // trap.c
 extern uint     ticks;
+extern uint     que_slot;
 void            trapinit(void);
 void            trapinithart(void);
 extern struct spinlock tickslock;
+extern struct spinlock queslotlock;
 void            usertrapret(void);
 
 // uart.c
