@@ -101,15 +101,15 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
   int trace_mask;              // Trace mask
-  int ctime;
-  int ttime;
-  int stime;
-  int retime;
-  int rutime;
-  int average_bursttime; //average of bursstimes in 100ths (so average*100)
-  int cputime;
-  int priority;
-  int runnabletime;
+  int ctime;                   // Creation time
+  int ttime;                   // Termination time
+  int stime;                   // Sleeping time
+  int retime;                  // Runnable time
+  int rutime;                  // Running time
+  int average_bursttime; //average of bursstimes in 100ths (For SRT)
+  int cputime;           // The time the process ran before getting an interupt by the cpu.
+  int priority;          // The process priority (For CFSD)
+  int runnabletime;      // The process slot in the runnable que (For FCFS)
   // proc_tree_lock must be held when using this:
   struct proc *parent;         // Parent process
 

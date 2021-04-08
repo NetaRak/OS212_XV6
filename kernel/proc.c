@@ -290,10 +290,6 @@ trace(int mask, int pid){
     acquire(&p->lock);
     if(p->pid == pid){
       p->trace_mask = mask;
-      // if(p->state == SLEEPING){
-      //   // Wake process from sleep().
-      //   p->state = RUNNABLE;
-      // }
       release(&p->lock);
       return 0;
     }
@@ -424,6 +420,9 @@ exit(int status)
   panic("zombie exit");
 }
 
+// Wait for a child process to exit and return its pid.
+// Filling the performance struct with the parent values
+// Return -1 if this process has no children.
 int
 wait_stat(uint64 status, uint64 performance){
   struct proc *np;
@@ -566,6 +565,7 @@ wait(uint64 addr)
   }
 }
 
+//sets the priority of the current process.
 int
 set_priority(int priority){
   struct proc *p = myproc();
@@ -621,7 +621,6 @@ scheduler(void)
   c->proc = 0;
 //  printf("pid %d ctime %d\n",proc->pid,proc->ctime);
   for(;;){
-    // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
@@ -651,7 +650,6 @@ scheduler(void)
   struct cpu *c = mycpu();
   struct proc *prio_proc = 0;
   c->proc = 0;
-//  printf("pid %d ctime %d\n",proc->pid,proc->ctime);
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on(); 
@@ -659,11 +657,6 @@ scheduler(void)
       acquire(&p->lock);
         if(p->state == RUNNABLE){
             if(prio_proc == 0 || p->average_bursttime < prio_proc->average_bursttime) {
-              // if(prio_proc != 0 && p->average_bursttime == prio_proc->average_bursttime){
-              //   if(prio_proc->runnabletime > p->runnabletime)
-              //     prio_proc = p;
-              // }
-              // else
                 prio_proc = p;
 
             }
@@ -692,7 +685,6 @@ scheduler(void)
   c->proc = 0;
   int prio[] = {1,3,5,7,25};
   int min_ratiotime = -1;
-//  printf("pid %d ctime %d\n",proc->pid,proc->ctime);
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on(); 
@@ -740,7 +732,6 @@ sched(void)
 {
   int intena;
   struct proc *p = myproc();
-
   if(!holding(&p->lock))
     panic("sched p->lock");
   if(mycpu()->noff != 1)
@@ -749,7 +740,9 @@ sched(void)
     panic("sched running");
   if(intr_get())
     panic("sched interruptible");
-
+  int lastA = p->average_bursttime;
+  //Need to update the average burst time since the process yield/blocked
+  p->average_bursttime = (ALPHA*p->cputime)+(((100-ALPHA)*lastA)/100);
   intena = mycpu()->intena;
   swtch(&p->context, &mycpu()->context);
   mycpu()->intena = intena;
@@ -761,8 +754,6 @@ yield(void)
 {
   struct proc *p = myproc();
   acquire(&p->lock);
-  int lastA = p->average_bursttime;
-  p->average_bursttime = (ALPHA*p->cputime)+(((100-ALPHA)*lastA)/100);
   p->cputime = 0;
   p->state = RUNNABLE;
   acquire(&queslotlock);
@@ -847,18 +838,15 @@ wakeup(void *chan)
   }
 }
 
+//Updates all process performance stats every tick cycle.
 void
 updateprocessestime(){
   struct proc *p;
   for(p = proc; p < &proc[NPROC]; p++) {
-    //if(p != myproc()){
       acquire(&p->lock);
       switch(p->state){
         case SLEEPING:
           p->stime++;
-          int lastA = p->average_bursttime;
-          p->average_bursttime = (ALPHA*p->cputime)+(((100-ALPHA)*lastA)/100);
-          p->cputime = 0;
           break;
         case RUNNING:
           p->rutime++;
@@ -871,7 +859,6 @@ updateprocessestime(){
           break;
       }
       release(&p->lock);
-    //}
   }
 }
 // Kill the process with the given pid.

@@ -137,8 +137,6 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
-	$U/_tracetest\
-	$U/_netatest\
 
 fs.img: mkfs/mkfs README path $(UPROGS)
 	mkfs/mkfs fs.img README path $(UPROGS)
