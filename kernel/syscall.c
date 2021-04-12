@@ -177,6 +177,9 @@ print_trace(int pid, int sys_id, int ret_val, int args){
     case SYS_sbrk:
       printf("%d: syscall %s %d -> %d\n", pid, sys_names[sys_id], args, ret_val);
       break;
+    case SYS_set_priority:
+      printf("%d: syscall %s %d -> %d\n", pid, sys_names[sys_id], args, ret_val);
+      break;
     default:
       printf("%d: syscall %s -> %d\n", pid, sys_names[sys_id], ret_val);
   }
@@ -190,9 +193,9 @@ syscall(void)
   int mask = p->trace_mask;
   num = p->trapframe->a7;
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
-    p->trapframe->a0 = syscalls[num]();
     int args;
     argint(0, &args);
+    p->trapframe->a0 = syscalls[num]();
     if(mask & (1 << num))
       print_trace(p->pid, num, p->trapframe->a0, args);
   } else {

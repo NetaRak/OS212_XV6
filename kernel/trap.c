@@ -7,8 +7,9 @@
 #include "defs.h"
 
 struct spinlock tickslock;
+struct spinlock queslotlock;
 uint ticks;
-
+uint que_slot = 0;
 extern char trampoline[], uservec[], userret[];
 
 // in kernelvec.S, calls kerneltrap().
@@ -76,10 +77,12 @@ usertrap(void)
   if(p->killed)
     exit(-1);
 
+  #ifndef FCFS
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2 && myproc()->cputime >= QUANTUM)
     yield();
-
+  #endif
+  
   usertrapret();
 }
 
@@ -148,13 +151,12 @@ kerneltrap()
     printf("sepc=%p stval=%p\n", r_sepc(), r_stval());
     panic("kerneltrap");
   }
-  #ifdef DEFAULT
-  // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
+  #ifndef FCFS
+  
+  // give up the CPU if this is a timer interrupt. 
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING && myproc()->cputime >= QUANTUM)
     yield();
-  #else
-  #ifdef FCFS
-  #endif
+  
   #endif
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.
